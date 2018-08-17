@@ -19,6 +19,10 @@ class TestHelperAPI(unittest.TestCase):
         pa =  HelperAPI()
         self.assertEqual(pa.difference_in_days(date(2018,2,13),date(2013,2,12)), 1)
 
+    def test_days_difference_today(self):
+        pa =  HelperAPI()
+        self.assertEqual(pa.difference_in_days(datetime.today().date()), 0)
+
     def test_was_message(self):
         pa =  HelperAPI()
         self.assertEqual(pa.generate_birhtday_message(-30), 'Your birthday was 30 days ago')
