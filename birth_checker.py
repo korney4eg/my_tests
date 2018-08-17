@@ -27,7 +27,6 @@ def greet(name):
     data = request.body.read().decode("utf-8")
     # Checking that user provided proper json
     parsed_data = helper_api.parse_json(data)
-    print(parsed_data.keys)
     if parsed_data == None:
         return {'error': "Proper json wasn't provided"}
     if 'dateOfBirth' not in parsed_data.keys():
