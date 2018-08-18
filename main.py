@@ -3,6 +3,8 @@ from person_registry import *
 from bottle import get, run, request, put,  response,error, abort
 from datetime import date
 
+version = '1.0.0'
+
 person_registry = PersonRegistry()
 helper_api = HelperAPI()
 @error(500)
@@ -20,6 +22,9 @@ def hello(name):
     response.status = 200
     return {'message':'Hello '+ name + '! '+ helper_api.generate_birhtday_message(time_delta)}
 
+@get('/healthcheck')
+def healthcheck():
+    return 'Version ='+ version
 
 @put('/hello/<name>')
 def greet(name):
