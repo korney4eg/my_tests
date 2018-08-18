@@ -5,6 +5,8 @@ class PersonRegistry():
     def __init__(self):
         self.connection = pymysql.connect(host='127.0.0.1',user='myuser', password='12345', db='my_users')
         self.cursor =  self.connection.cursor()
+        # Creating schema
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS users (name VARCHAR (20), birth DATE);")
             
     def get_sql_data(self, query):
         self.cursor.execute(query)
