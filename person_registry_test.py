@@ -1,5 +1,5 @@
 from person_registry import * 
-
+from datetime import date, datetime
 import unittest
 
 class TestPersonRegistry(unittest.TestCase):
@@ -11,7 +11,7 @@ class TestPersonRegistry(unittest.TestCase):
     def test_getting_registered_date(self):
         pr =  PersonRegistry()
         pr.add_person('jake','2001-12-01')
-        self.assertEqual(pr.get_birh_date('jake'), '2001-12-01')
+        self.assertEqual(pr.get_birh_date('jake'), date(2001, 12, 1))
 
     def test_getting_removed_date(self):
         pr =  PersonRegistry()
@@ -23,7 +23,7 @@ class TestPersonRegistry(unittest.TestCase):
         pr =  PersonRegistry()
         pr.add_person('jake','2001-12-01')
         pr.add_person('jake','2001-12-23')
-        self.assertEqual(pr.get_birh_date('jake'), '2001-12-23')
+        self.assertEqual(pr.get_birh_date('jake'), date(2001, 12, 23))
 
 if __name__ == '__main__':
     unittest.main()
