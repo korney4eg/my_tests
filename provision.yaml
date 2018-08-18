@@ -5,13 +5,17 @@
   gather_facts: False
 
   tasks:
-    - name: Setting common variables
+    - name: Setting  variables
       set_fact:
         region: eu-west-1
         db_name: myTestDB
         db_user: myuser
         db_password: 12345678
-        version: 1.10.0
+        version: 2.0.0
+        stack: blue
+        instance_num: 1
+        old_instance_ids: []
+        new_instance_ids: []
   
     - name: create VPC
       ec2_vpc_net:
@@ -22,7 +26,7 @@
       register: vpc
 
   
-    - name: app subnet to the VPC
+    - name: Create app subnet
       ec2_vpc_subnet:
         state: present
         vpc_id: "{{ vpc.vpc.id }}"
@@ -31,7 +35,7 @@
         map_public: yes
       register: app_subnet
 
-    - name: db1 subnet to the VPC
+    - name: db1 subnet
       ec2_vpc_subnet:
         state: present
         vpc_id: "{{ vpc.vpc.id }}"
@@ -41,7 +45,7 @@
         map_public: no
       register: db_subnet1
 
-    - name: db subnet to the VPC
+    - name: db2 subnet
       ec2_vpc_subnet:
         state: present
         vpc_id: "{{ vpc.vpc.id }}"
@@ -143,9 +147,6 @@
         wait: yes
         subnet: "{{ rds_subnet_group.subnet_group.name }}"
       register: rds
-    - debug:
-        msg: "The new db endpoint is {{ rds.instance.endpoint }}"
-
 
     - name: create a new ec2 key pair
       ec2_key:
@@ -168,19 +169,32 @@
         group_id: "{{ app_sg.group_id }}"
         vpc_subnet_id: "{{ app_subnet.subnet.id }}"
         key_name: "{{ keypair.key.name  }}"
-        count_tag: 1
+        count_tag: "{{ instance_num * 2 |int}}"
         user_data: "{{ lookup('file', './setup.sh') }}"
-        exact_count: 1
+        exact_count: "{{ instance_num  * 2 | int}}"
       register: ec2
 
-    - name: Create ELB
+    - name: get old instances ids
+      set_fact:
+        old_instance_ids: "{{old_instance_ids}} + ['{{ item.id }}']"
+      loop: "{{ec2.tagged_instances}}"
+
+
+    - name: get new instances ids
+      set_fact:
+        new_instance_ids: "{{ec2.instance_ids}}"
+
+    - set_fact:
+        old_instance_ids: "{{old_instance_ids | difference(new_instance_ids)}}"
+
+    - name: Create ELB with all instances
       ec2_elb_lb:
         name: "app-lb"
         state: present
         security_group_ids:
           - "{{ elb_sg.group_id }}"
         region: "{{ region }}"
-        instance_ids: "{{ ec2.tagged_instances[0].id}}"
+        instance_ids: "{{ old_instance_ids }} + {{ new_instance_ids }}"
         subnets:
           - "{{ app_subnet.subnet.id}}"
         listeners:
@@ -195,3 +209,47 @@
             interval: 30 # seconds
             unhealthy_threshold: 2
             healthy_threshold: 2
+
+
+
+    - name: Waiting for instances to become ready
+      ec2_elb_facts:
+        region: "{{ region }}"
+        names: app-lb
+      register: elb_facts
+      until: elb_facts.elbs[0].instances_inservice_count  == instance_num * 2
+      retries: 10
+      delay: 15
+
+    - name: Remove old instances from ELB
+      ec2_elb_lb:
+        name: "app-lb"
+        state: present
+        security_group_ids:
+          - "{{ elb_sg.group_id }}"
+        region: "{{ region }}"
+        instance_ids: "{{ new_instance_ids }}"
+        subnets:
+          - "{{ app_subnet.subnet.id}}"
+        listeners:
+          - protocol: http
+            load_balancer_port: 80
+            instance_port: 8081
+        health_check:
+            ping_protocol: http # options are http, https, ssl, tcp
+            ping_port: 8081
+            ping_path: "/healthcheck" # not required for tcp or ssl
+            response_timeout: 15 # seconds
+            interval: 30 # seconds
+            unhealthy_threshold: 2
+            healthy_threshold: 2
+        purge_instance_ids: true
+
+
+    - name: Terminate instances that were previously launched
+      ec2:
+        state: 'absent'
+        instance_ids: '{{ old_instance_ids }}'
+        region: "{{ region }}"
+        group_id: "{{ app_sg.group_id }}"
+        vpc_subnet_id: "{{ app_subnet.subnet.id }}"
