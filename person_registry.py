@@ -1,9 +1,13 @@
 import pymysql.cursors
 import pymysql
+import configparser
 
-class PersonRegistry():
+class PersonRegistry():    
     def __init__(self):
-        self.connection = pymysql.connect(host='127.0.0.1',user='myuser', password='12345', db='my_users')
+        config = configparser.ConfigParser()
+        config.read('.db_config.ini')
+        db_conf = config['database']
+        self.connection = pymysql.connect(host=db_conf['host'],user=db_conf['user'], password=db_conf['password'], db=db_conf['database'])
         self.cursor =  self.connection.cursor()
         # Creating schema
         self.cursor.execute("CREATE TABLE IF NOT EXISTS users (name VARCHAR (20), birth DATE);")
