@@ -1,0 +1,197 @@
+---
+- name: Provision ec2 instances based on the environment
+  hosts: localhost
+  connection: local
+  gather_facts: False
+
+  tasks:
+    - name: Setting common variables
+      set_fact:
+        region: eu-west-1
+        db_name: myTestDB
+        db_user: myuser
+        db_password: 12345678
+        version: 1.10.0
+  
+    - name: create VPC
+      ec2_vpc_net:
+        name: "my-vpc"
+        cidr_block: 10.10.0.0/24
+        region: "{{region}}"
+        state: present
+      register: vpc
+
+  
+    - name: app subnet to the VPC
+      ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{region}}"
+        cidr: "10.10.0.0/26"
+        map_public: yes
+      register: app_subnet
+
+    - name: db1 subnet to the VPC
+      ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{region}}"
+        az: "{{region}}a"
+        cidr: "10.10.0.64/26"
+        map_public: no
+      register: db_subnet1
+
+    - name: db subnet to the VPC
+      ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{region}}"
+        cidr: "10.10.0.128/26"
+        az: "{{region}}b"
+        map_public: no
+      register: db_subnet2
+
+    - name: create IGW
+      ec2_vpc_igw:
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{region}}"
+        state: "present"
+      register: igw
+  
+    - name: Set up public subnet route table
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{region}}"
+        tags:
+          Name: Public
+        subnets:
+          - "{{ app_subnet.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ igw.gateway_id }}"
+      register: public_route_table
+
+    - name: Create Security Group for ELB
+      ec2_group:
+        name: elb_sg
+        description: Security Group for ELB
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            ports:
+            - 80
+            cidr_ip: 0.0.0.0/0
+      register: elb_sg
+
+    - name: Create Security Group for App server
+      ec2_group:
+        name: appserverLB
+        description: Application Server
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            ports:
+            - 8081
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            ports:
+            - 22
+            cidr_ip: 0.0.0.0/0
+      register: app_sg
+
+    - name: Create Security Group for DB server
+      ec2_group:
+        name: db_server_sg
+        description: DB Server
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            ports:
+            - 3306
+            cidr_ip: 0.0.0.0/0
+      register: db_sg
+
+    - name: Creating RDS subnet group
+      rds_subnet_group:
+        state: present
+        name: norwegian-blue
+        region: "{{ region }}"
+        description: My Fancy Ex Parrot Subnet Group
+        subnets: 
+          - "{{db_subnet1.subnet.id}}"
+          - "{{db_subnet2.subnet.id}}"
+      register: rds_subnet_group
+    - debug:
+        msg: "RDS subnet group: {{rds_subnet_group}}"
+
+    - name: Create DB
+      rds:
+        instance_name: 'database'
+        db_name: "{{ db_name }}"
+        command: create
+        region: "{{ region }}"
+        instance_name: database
+        db_engine: MySQL
+        size: 10
+        instance_type: db.t2.small
+        username: "{{ db_user }}"
+        password: "{{ db_password }}"
+        vpc_security_groups: "{{db_sg.group_id}}"
+        wait: yes
+        subnet: "{{ rds_subnet_group.subnet_group.name }}"
+      register: rds
+    - debug:
+        msg: "The new db endpoint is {{ rds.instance.endpoint }}"
+
+
+    - name: create a new ec2 key pair
+      ec2_key:
+        name: provisioner
+        region: "{{ region }}"
+        key_material: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+      register: keypair
+ 
+    - name: Creating database coniguration template
+      template:
+        src: ./setup.sh.j2
+        dest: ./setup.sh
+
+    - name: Create EC2 server
+      ec2:
+        image: ami-41505fab
+        wait: yes
+        instance_type: t2.micro
+        region: "{{ region }}"
+        group_id: "{{ app_sg.group_id }}"
+        vpc_subnet_id: "{{ app_subnet.subnet.id }}"
+        key_name: "{{ keypair.key.name  }}"
+        count_tag: 1
+        user_data: "{{ lookup('file', './setup.sh') }}"
+        exact_count: 1
+      register: ec2
+
+    - name: Create ELB
+      ec2_elb_lb:
+        name: "app-lb"
+        state: present
+        security_group_ids:
+          - "{{ elb_sg.group_id }}"
+        region: "{{ region }}"
+        instance_ids: "{{ ec2.tagged_instances[0].id}}"
+        subnets:
+          - "{{ app_subnet.subnet.id}}"
+        listeners:
+          - protocol: http
+            load_balancer_port: 80
+            instance_port: 8081
+        health_check:
+            ping_protocol: http # options are http, https, ssl, tcp
+            ping_port: 8081
+            ping_path: "/healthcheck" # not required for tcp or ssl
+            response_timeout: 15 # seconds
+            interval: 30 # seconds
+            unhealthy_threshold: 2
+            healthy_threshold: 2

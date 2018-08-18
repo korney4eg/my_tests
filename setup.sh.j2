@@ -1,0 +1,41 @@
+#!/bin/bash
+yum install python mysql57 git telnet nginx -y
+
+useradd serv_runner
+
+cd /opt/
+
+git clone https://github.com/korney4eg/my_tests person_api
+chown serv_runner:serv_runner person_api -R
+cd person_api
+pip install -r requirements.txt
+
+
+# create config file
+echo '
+[database]
+host = {{ rds.instance.endpoint }}
+port = 3306
+database = {{ db_name }}
+user = {{ db_user }}
+password = {{ db_password }}' > /opt/person_api/.db_config.ini
+
+# nginx configuration
+echo '
+server {
+    listen      8081  default_server;
+    location = /healthcheck {
+        add_header Content-Type text/plain;
+    	return 200 '{{ version }}';
+    }
+    location /{
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}' > /etc/nginx/conf.d/virtual.conf
+service nginx restart
+
+su - serv_runner -c "cd /opt/person_api && nohup python main.py >> /tmp/person_api.log &"
