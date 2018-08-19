@@ -3,3 +3,4 @@
 *.pyc
 *.retry
 setup.sh
+.db_config.ini
