@@ -8,6 +8,7 @@ cd my_tests
 
 ## 1. write hello world api
 To run it following steps should be made:
+
 0. Go to `1.Hello_World_app/` folder
 ```bash
 cd 1.Hello_World_app/
@@ -56,3 +57,8 @@ To run deployment you need to have ansible installed.
 cd 3.Zero_downtime_deployment_script/
 ansible-playbook provision.yaml -v
 ```
+
+## System requirements:
+- git
+- ansible 2.6.2
+- Python 2.7.15
