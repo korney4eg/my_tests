@@ -8,6 +8,11 @@ cd my_tests
 
 ## 1. write hello world api
 To run it following steps should be made:
+0. Go to `1.Hello_World_app/` folder
+```bash
+cd 1.Hello_World_app/
+```
+
 1. configuration file `.db_config.ini` created, that contains database connection info.
 
 Here is example
@@ -41,12 +46,13 @@ python main.py
 
 ## 2. Produce system diagram on solution
 
-![Application diagramm](https://github.com/korney4eg/my_tests/raw/master/application_diagramm.png)
+![Application diagramm](https://github.com/korney4eg/my_tests/raw/master/2.System_diagramm/application_diagramm.png)
 
 ## 3. write configuration script to build and make zero-downtime deployment
-Script could be found [here](https://github.com/korney4eg/my_tests/blob/master/provision.yaml)
+Script could be found [here](https://github.com/korney4eg/my_tests/blob/master/3.Zero_downtime_deployment_script/provision.yaml)
 
 To run deployment you need to have ansible installed.
 ```bash
+cd 3.Zero_downtime_deployment_script/
 ansible-playbook provision.yaml -v
 ```

@@ -7,7 +7,7 @@ cd /opt/
 
 git clone https://github.com/korney4eg/my_tests person_api
 chown serv_runner:serv_runner person_api -R
-cd person_api
+cd person_api/1.Hello_World_app/
 pip install -r requirements.txt
 
 
@@ -42,4 +42,4 @@ server {
 }' > /etc/nginx/conf.d/virtual.conf
 service nginx restart
 
-su - serv_runner -c "cd /opt/person_api && nohup python main.py >> /tmp/person_api.log &"
+su - serv_runner -c "cd /opt/person_api/1.Hello_World_app/ && nohup python main.py >> /tmp/person_api.log &"
