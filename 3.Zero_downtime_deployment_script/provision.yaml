@@ -3,26 +3,18 @@
   hosts: localhost
   connection: local
   gather_facts: False
+  vars_files:
+    - vars.yaml
 
   tasks:
-    - name: Setting  variables
-      set_fact:
-        region: eu-west-1
-        db_name: myTestDB
-        db_user: myuser
-        db_password: 12345678
-        version: 2.0.0
-        stack: blue
-        instance_num: 1
-        old_instance_ids: []
-        new_instance_ids: []
-  
     - name: create VPC
       ec2_vpc_net:
         name: "my-vpc"
         cidr_block: 10.10.0.0/24
         region: "{{region}}"
         state: present
+        tags:
+          Environment: MyTest
       register: vpc
 
   
@@ -33,6 +25,8 @@
         region: "{{region}}"
         cidr: "10.10.0.0/26"
         map_public: yes
+        tags:
+          Environment: MyTest
       register: app_subnet
 
     - name: db1 subnet
@@ -43,6 +37,8 @@
         az: "{{region}}a"
         cidr: "10.10.0.64/26"
         map_public: no
+        tags:
+          Environment: MyTest
       register: db_subnet1
 
     - name: db2 subnet
@@ -53,6 +49,8 @@
         cidr: "10.10.0.128/26"
         az: "{{region}}b"
         map_public: no
+        tags:
+          Environment: MyTest
       register: db_subnet2
 
     - name: create IGW
@@ -60,6 +58,8 @@
         vpc_id: "{{ vpc.vpc.id }}"
         region: "{{region}}"
         state: "present"
+        tags:
+          Environment: MyTest
       register: igw
   
     - name: Set up public subnet route table
@@ -68,6 +68,7 @@
         region: "{{region}}"
         tags:
           Name: Public
+          Environment: MyTest
         subnets:
           - "{{ app_subnet.subnet.id }}"
         routes:
@@ -86,6 +87,8 @@
             ports:
             - 80
             cidr_ip: 0.0.0.0/0
+        tags:
+          Environment: MyTest
       register: elb_sg
 
     - name: Create Security Group for App server
@@ -103,6 +106,8 @@
             ports:
             - 22
             cidr_ip: 0.0.0.0/0
+        tags:
+          Environment: MyTest
       register: app_sg
 
     - name: Create Security Group for DB server
@@ -116,6 +121,8 @@
             ports:
             - 3306
             cidr_ip: 0.0.0.0/0
+        tags:
+          Environment: MyTest
       register: db_sg
 
     - name: Creating RDS subnet group
@@ -137,7 +144,6 @@
         db_name: "{{ db_name }}"
         command: create
         region: "{{ region }}"
-        instance_name: database
         db_engine: MySQL
         size: 10
         instance_type: db.t2.small
@@ -146,6 +152,8 @@
         vpc_security_groups: "{{db_sg.group_id}}"
         wait: yes
         subnet: "{{ rds_subnet_group.subnet_group.name }}"
+        tags:
+          Environment: MyTest
       register: rds
 
     - name: create a new ec2 key pair
@@ -160,6 +168,27 @@
         src: ./setup.sh.j2
         dest: ./setup.sh
 
+    - set_fact:
+        old_instance_ids: []
+        new_instance_ids: []
+
+    - name: Get old instances
+      ec2_remote_facts:
+        filters:
+          vpc_id: "{{ vpc.vpc.id }}"
+          instance-state-name: running
+          "tag:Name": MyTestApp
+        region: "{{ region }}"
+      register: old_instances
+
+    - name: get old instances ids
+      set_fact:
+        old_instance_ids: "{{old_instance_ids}} + ['{{ item.id }}']"
+      loop: "{{old_instances.instances}}"
+
+    - debug:
+        msg: "old instances ids: {{ old_instance_ids }}"
+
     - name: Create EC2 server
       ec2:
         image: ami-41505fab
@@ -169,23 +198,22 @@
         group_id: "{{ app_sg.group_id }}"
         vpc_subnet_id: "{{ app_subnet.subnet.id }}"
         key_name: "{{ keypair.key.name  }}"
-        count_tag: "{{ instance_num * 2 |int}}"
+        count_tag: "{{ old_instance_ids|length + instance_num  |int}}"
         user_data: "{{ lookup('file', './setup.sh') }}"
-        exact_count: "{{ instance_num  * 2 | int}}"
+        exact_count: "{{ old_instance_ids|length + instance_num  |int}}"
+        instance_tags:
+          Environment: MyTest
+          Name: MyTestApp
       register: ec2
-
-    - name: get old instances ids
-      set_fact:
-        old_instance_ids: "{{old_instance_ids}} + ['{{ item.id }}']"
-      loop: "{{ec2.tagged_instances}}"
-
 
     - name: get new instances ids
       set_fact:
         new_instance_ids: "{{ec2.instance_ids}}"
+        all_instances: "{{old_instance_ids}}+{{new_instance_ids}}"
 
-    - set_fact:
-        old_instance_ids: "{{old_instance_ids | difference(new_instance_ids)}}"
+    - name: get new instances ids
+      set_fact:
+        all_instances: "{{old_instance_ids}}+{{new_instance_ids}}"
 
     - name: Create ELB with all instances
       ec2_elb_lb:
@@ -194,7 +222,7 @@
         security_group_ids:
           - "{{ elb_sg.group_id }}"
         region: "{{ region }}"
-        instance_ids: "{{ old_instance_ids }} + {{ new_instance_ids }}"
+        instance_ids: "{{ all_instances }}"
         subnets:
           - "{{ app_subnet.subnet.id}}"
         listeners:
@@ -209,15 +237,15 @@
             interval: 30 # seconds
             unhealthy_threshold: 2
             healthy_threshold: 2
-
-
+        tags:
+          Environment: MyTest
 
     - name: Waiting for instances to become ready
       ec2_elb_facts:
         region: "{{ region }}"
         names: app-lb
       register: elb_facts
-      until: elb_facts.elbs[0].instances_inservice_count  == instance_num * 2
+      until: elb_facts.elbs[0].instances_inservice_count  == all_instances|length
       retries: 10
       delay: 15
 
@@ -244,7 +272,7 @@
             unhealthy_threshold: 2
             healthy_threshold: 2
         purge_instance_ids: true
-
+      when: old_instance_ids.0 is defined
 
     - name: Terminate instances that were previously launched
       ec2:
@@ -253,3 +281,4 @@
         region: "{{ region }}"
         group_id: "{{ app_sg.group_id }}"
         vpc_subnet_id: "{{ app_subnet.subnet.id }}"
+      when: old_instance_ids.0 is defined
