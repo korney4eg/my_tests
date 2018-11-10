@@ -105,8 +105,8 @@
         rules:
           - proto: tcp
             ports:
-            - 8081
-            cidr_ip: 0.0.0.0/0
+              - 8081
+            group_id: "{{ elb_sg.group_id }}"
           - proto: tcp
             ports:
             - 22
@@ -124,8 +124,8 @@
         rules:
           - proto: tcp
             ports:
-            - 3306
-            cidr_ip: 0.0.0.0/0
+              - 3306
+            group_id: "{{ app_sg.group_id }}"
         tags:
           Environment: MyTest
       register: db_sg
